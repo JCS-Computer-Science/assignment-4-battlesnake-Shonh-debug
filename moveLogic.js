@@ -89,7 +89,7 @@ export default function move(gameState){
     }
      // Prevent colliding with the rest of the body
     for (let i = 1; i < myBody.length; i++) { // Start from 1 to skip the head
-        const segment = myBody[i];
+    const segment = myBody[i];
 
     if (segment.x === myHead.x && segment.y === myHead.y + 1) {
         moveSafety.up = false; // Block upward movement
