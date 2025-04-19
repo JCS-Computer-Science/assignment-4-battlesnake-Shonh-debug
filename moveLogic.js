@@ -1,301 +1,224 @@
-export default function move(gameState){
-    let moveSafety = {
-        up: true,
-        down: true,
-        left: true,
-        right: true
-    };
-    
-    let movePriorities = {
-        up: 0,
-        down: 0,
-        left: 0,
-        right: 0,
-    };
-
-    // We've included code to prevent your Battlesnake from moving backwards
+export default function move(game) {
+    const gameState = game;
     const myHead = gameState.you.body[0];
-    const myNeck = gameState.you.body[1];
-    
-    if (myNeck.x < myHead.x) {        // Neck is left of head, don't move left
-        moveSafety.left = false;
-        
-    } else if (myNeck.x > myHead.x) { // Neck is right of head, don't move right
-        moveSafety.right = false;
-        
-    } else if (myNeck.y < myHead.y) { // Neck is below head, don't move down
-        moveSafety.down = false;
-        
-    } else if (myNeck.y > myHead.y) { // Neck is above head, don't move up
-        moveSafety.up = false;
+    const myTail = gameState.you.body[gameState.you.body.length - 1];
+    const headNode = getNodeId(myHead, gameState);
+
+    let board = {};
+    let c = 0;
+    for (let y = 0; y < gameState.board.height; y++) {
+        for (let x = 0; x < gameState.board.width; x++) {
+            board[c] = { position: { x, y }, connections: [], id: c };
+            c++;
+        }
+    }
+    board = connectNodes(gameState, board);
+
+    // Determine target based on hunger state
+    const isHungry = gameState.you.health < 30 || gameState.you.body.length % 2 !== 0 ||
+        gameState.board.snakes.some(s => s.id !== gameState.you.id && s.body.length >= gameState.you.body.length - 2);
+
+    let targetNode;
+    if (isHungry && gameState.board.food.length > 0) {
+        targetNode = nearestFood(gameState, board, myHead, myHead);
+    } else {
+        targetNode = getNodeId(myTail, gameState);
     }
 
-    // TODO: Step 1 - Prevent your Battlesnake from moving out of bounds
-    // gameState.board contains an object representing the game board including its width and height
-    // https://docs.battlesnake.com/api/objects/board
-   
-    const boardWidth = gameState.board.width;
-    const boardHeight = gameState.board.height;
+    if (checkEnclosure(board, headNode, gameState)) {
+        const escape = findClosestOpening(gameState, board, headNode);
+        if (escape) targetNode = escape.opening || targetNode;
+    }
 
-    if (myHead.x === 0) { // Prevent moving left out of bounds
-        moveSafety.left = false;
-    }
-    if (myHead.x === boardWidth - 1) { // Prevent moving right out of bounds
-        moveSafety.right = false;
-    }
-    if (myHead.y === 0) { // Prevent moving down out of bounds
-        moveSafety.down = false;
-    }
-     if (myHead.y === boardHeight - 1) { // Prevent moving up out of bounds
-        moveSafety.up = false;
-    }
-    if (myHead.x == 1) {
-        movePriorities.left = -5;
-    }
-    if (myHead.x == boardWidth - 2) {
-        movePriorities.right = -5;
-    }
-    if (myHead.y == 1) {
-        movePriorities.down = -5;
-    }
-    if (myHead.y == boardHeight - 2) {
-        movePriorities.up = -5;
-    }
-    
-    // TODO: Step 2 - Prevent your Battlesnake from colliding with itself
-    // gameState.you contains an object representing your snake, including its coordinates
-    // https://docs.battlesnake.com/api/objects/battlesnake
-    
-    const myBody = gameState.you.body;
-    for (let i = 1; i < (myBody.length - 1); i++) {
-        //Ignores tail?
-        const segment = myBody[i];
-        if (segment.x == myHead.x && segment.y == myHead.y + 1) {
-            moveSafety.up = false;
-        }
-        if (segment.x == myHead.x && segment.y == myHead.y - 1) {
-            moveSafety.down = false;
-        }
-        if (segment.x == myHead.x - 1 && segment.y == myHead.y) {
-            moveSafety.left = false;
-        }
-        if (segment.x == myHead.x + 1 && segment.y == myHead.y) {
-            moveSafety.right = false;
-        }
-        // Optional: Break early if all moves are already marked unsafe
-        if (!moveSafety.up && !moveSafety.down && !moveSafety.left && !moveSafety.right) {
+    const path = aStar(board, headNode, targetNode);
+    let nextMove = calculateNextMove(path.path[1], board, headNode);
+
+    // New: Ensure selected move doesn't crash into wall or body
+    const allMoves = ['up', 'down', 'left', 'right'];
+    const safeMoves = allMoves.filter(move => isMoveSafe(move, gameState));
+
+    if (!safeMoves.includes(nextMove)) {
+        for (let move of safeMoves) {
+            const neighbor = getNextPosition(myHead, move);
+            const neighborNode = getNodeId(neighbor, gameState);
+            if (neighborNode !== undefined && bfs(board, neighborNode) > gameState.you.body.length / 2) {
+                nextMove = move;
                 break;
-             }
-    }
-     // Prevent colliding with the rest of the body
-    for (let i = 1; i < myBody.length; i++) { // Start from 1 to skip the head
-    const segment = myBody[i];
-
-    if (segment.x === myHead.x && segment.y === myHead.y + 1) {
-        moveSafety.up = false; // Block upward movement
-    }
-    if (segment.x === myHead.x && segment.y === myHead.y - 1) {
-        moveSafety.down = false; // Block downward movement
-    }
-    if (segment.x === myHead.x - 1 && segment.y === myHead.y) {
-        moveSafety.left = false; // Block left movement
-    }
-    if (segment.x === myHead.x + 1 && segment.y === myHead.y) {
-        moveSafety.right = false; // Block right movement
-    }
-}
-
-    // TODO: Step 3 - Prevent your Battlesnake from colliding with other Battlesnakes
-    // gameState.board.snakes contains an array of enemy snake objects, which includes their coordinates
-    // https://docs.battlesnake.com/api/objects/battlesnake
-    let isDangerClose = false;
-
-    for (let i = 0; i < gameState.board.snakes.length; i++) {
-        const enemySnake = gameState.board.snakes[i];
-        const enemyHead = enemySnake.body[0];
-
-        if (
-            Math.abs(enemyHead.x - myHead.x) <= 2 && 
-            Math.abs(enemyHead.y - myHead.y) <= 2
-        ){
-            isDangerClose = true;
-            break;
-        }
-
-        if (enemySnake.body.length > gameState.you.body.length) {
-            isDangerClose = true;
-            break;
-            }
-        }
-    for (let i = 0; i < gameState.board.snakes.length; i++) {
-        const snake = gameState.board.snakes[i];
-        const enemyHead = snake.body[0];
-        const enemyBody = snake.body; 
-        
-        // Avoid colliding with their head
-        if (enemyHead.x == myHead.x && enemyHead.y === myHead.y + 2) {
-            moveSafety.up = false;
-            movePriorities.up = -15;
-            movePriorities.down += isDangerClose ? 2 : 1; // Dynamically boost safer moves
-            movePriorities.left += isDangerClose ? 2 : 1;
-            movePriorities.right += isDangerClose ? 2 : 1;
-        }
-        if (enemyHead.x == myHead.x && enemyHead.y === myHead.y - 2) {
-            moveSafety.down = false;
-            movePriorities.down = -15;
-            movePriorities.up += isDangerClose ? 2 : 1;
-            movePriorities.left += isDangerClose ? 2 : 1;
-            movePriorities.right += isDangerClose ? 2 : 1;
-        }
-        if (enemyHead.x == myHead.x - 2 && enemyHead.y === myHead.y) {
-            moveSafety.left = false;
-            movePriorities.left = -15;
-            movePriorities.up += isDangerClose ? 2 : 1;
-            movePriorities.down += isDangerClose ? 2 : 1;
-            movePriorities.right += isDangerClose ? 2 : 1;
-        }
-        if (enemyHead.x == myHead.x + 2 && enemyHead.y === myHead.y) {
-            moveSafety.right = false;
-            movePriorities.right = -15;
-            movePriorities.up += isDangerClose ? 2 : 1;
-            movePriorities.down += isDangerClose ? 2 : 1;
-            movePriorities.left += isDangerClose ? 2 : 1;
-        }
-    
-        // Avoid diagonal spots
-        if (enemyHead.x == myHead.x - 1 && enemyHead.y === myHead.y - 1) {
-            movePriorities.down = -10;
-            movePriorities.left = -10;
-            movePriorities.up += isDangerClose ? 2 : 1;
-            movePriorities.right += isDangerClose ? 2 : 1;
-        }
-        if (enemyHead.x == myHead.x + 1 && enemyHead.y === myHead.y + 1) {
-            movePriorities.right = -10;
-            movePriorities.up = -10;
-            movePriorities.down += isDangerClose ? 2 : 1;
-            movePriorities.left += isDangerClose ? 2 : 1;
-        }
-        if (enemyHead.x == myHead.x - 1 && enemyHead.y === myHead.y + 1) {
-            movePriorities.up = -10;
-            movePriorities.left = -10;
-            movePriorities.down += isDangerClose ? 2 : 1;
-            movePriorities.right += isDangerClose ? 2 : 1;
-        }
-        if (enemyHead.x == myHead.x + 1 && enemyHead.y === myHead.y - 1) {
-            movePriorities.down = -10;
-            movePriorities.right = -10;
-            movePriorities.up += isDangerClose ? 2 : 1;
-            movePriorities.left += isDangerClose ? 2 : 1;
-        }
-        
-        // Avoid colliding with their body and tail
-        for (let i = 1; i < enemyBody.length - 1; i++) {
-            const segment = snake.body[i];
-            if (segment.x == myHead.x && segment.y === myHead.y + 2) {
-                moveSafety.up = false;
-            }
-            if (segment.x == myHead.x && segment.y === myHead.y - 2) {
-                moveSafety.down = false;
-            }
-            if (segment.x == myHead.x + 2 && segment.y === myHead.y) {
-                moveSafety.right = false;
-            }
-            if (segment.x == myHead.x - 2 && segment.y === myHead.y) {
-                moveSafety.left = false;
             }
         }
     }
-    // TODO: Step 4 - Move towards food instead of random, to regain health and survive longer
-    // gameState.board.food contains an array of food coordinates https://docs.battlesnake.com/api/objects/board
-    // gameState.board contains an array of food coordinates
-    
-    const food = gameState.board.food; // List of food positions on the board
-    const health = gameState.you.health; // Current health of the snake
-    const turn = gameState.turn; // Current turn number
-    
-    if (food.length > 0 && (turn <= 20 || health < 80)) {
-        // Find the closest food
-        let closestFood = food[0];
-        let closestDistance = Math.abs(food[0].x - myHead.x) + Math.abs(food[0].y - myHead.y);
-    
-        for (let i = 1; i < food.length; i++) {
-            const currentFood = food[i];
-            const distance = Math.abs(currentFood.x - myHead.x) + Math.abs(currentFood.y - myHead.y);
-    
-            // Avoid contested food logic
-            let contested = false;
-            for (let j = 0; j < gameState.board.snakes.length; j++) {
-                const enemySnake = gameState.board.snakes[j];
-                const enemyHead = enemySnake.body[0];
-                const enemyLength = enemySnake.body.length;
-    
-                const enemyDistanceToFood = Math.abs(enemyHead.x - currentFood.x) + Math.abs(enemyHead.y - currentFood.y);
-    
-                // If an enemy snake is closer to the food and is larger or equal in length
-                if (enemyDistanceToFood < distance && enemyLength >= gameState.you.body.length) {
-                    contested = true; // Mark the food as contested
-                    break;
-                }
-            }
-    
-            // If the food is not contested and is closer, update closestFood
-            if (!contested && distance < closestDistance) {
-                closestFood = currentFood;
-                closestDistance = distance;
-            }
-        }
-    
-        // Dynamically adjust priorities toward the closest food
-        if (closestFood.x < myHead.x && moveSafety.left) {
-            if (myHead.x - 1 > 0) { // Check if moving left keeps the snake in bounds
-                movePriorities.left += 20;
-            } else {
-                movePriorities.left = -20; // Penalize out-of-bounds moves
-            }
-        }
-        if (closestFood.x > myHead.x && moveSafety.right) {
-            if (myHead.x + 1 < boardWidth) { // Check if moving right keeps the snake in bounds
-                movePriorities.right += 20;
-            } else {
-                movePriorities.right = -20; // Penalize out-of-bounds moves
-            }
-        }
-        if (closestFood.y < myHead.y && moveSafety.up) {
-            if (myHead.y - 1 > 0) { // Check if moving up keeps the snake in bounds
-                movePriorities.up += 20;
-            } else {
-                movePriorities.up = -20; // Penalize out-of-bounds moves
-            }
-        }
-        if (closestFood.y > myHead.y && moveSafety.down) {
-            if (myHead.y + 1 < boardHeight) { // Check if moving down keeps the snake in bounds
-                movePriorities.down += 20;
-            } else {
-                movePriorities.down = -20; // Penalize out-of-bounds moves
-            }
-        }
-    }
-    // Are there any safe moves left?
-    
-    //Object.keys(moveSafety) returns ["up", "down", "left", "right"]
-    //.filter() filters the array based on the function provided as an argument (using arrow function syntax here)
-    //In this case we want to filter out any of these directions for which moveSafety[direction] == false
-    const safeMoves = Object.keys(moveSafety).filter(direction => moveSafety[direction]);
-    if (safeMoves.length == 0) {
-        console.log(`MOVE ${gameState.turn}: No safe moves detected! Moving down`);
-        return { move: "down" };
+
+    if (!safeMoves.includes(nextMove)) {
+        nextMove = safeMoves[0] || 'up';
     }
 
-      // Dynamically boost safe moves
-      for (const move of safeMoves) {
-        movePriorities[move] += 5; // Boost priorities of safe moves
-    }
-
-    const prioritizedMoves = safeMoves.sort((a, b) => (movePriorities[b] || 0) - (movePriorities[a] || 0));
-    const nextMove = prioritizedMoves[0];
-
-
-    console.log(`MOVE ${gameState.turn}: Chosen move: ${nextMove}`);
+    console.log(`MOVE ${gameState.turn}: ${nextMove}`);
     return { move: nextMove };
-
 }
+
+function isMoveSafe(move, gameState) {
+    const myHead = gameState.you.body[0];
+    const newHead = getNextPosition(myHead, move);
+    if (
+        newHead.x < 0 || newHead.x >= gameState.board.width ||
+        newHead.y < 0 || newHead.y >= gameState.board.height
+    ) {
+        return false;
+    }
+    for (const snake of gameState.board.snakes) {
+        for (const segment of snake.body.slice(0, -1)) {
+            if (segment.x === newHead.x && segment.y === newHead.y) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+function getNextPosition(pos, move) {
+    const delta = { up: [0, 1], down: [0, -1], left: [-1, 0], right: [1, 0] };
+    return {
+        x: pos.x + delta[move][0],
+        y: pos.y + delta[move][1]
+    };
+}
+
+function connectNodes(gameState, board) {
+    const snakeBodies = [];
+    const snakeHeads = [];
+    const food = [];
+    const tailNode = getNodeId(gameState.you.body[gameState.you.body.length - 1], gameState);
+
+    for (const snake of gameState.board.snakes) {
+        if (snake.id !== gameState.you.id) {
+            for (let i = 0; i < snake.body.length - 1; i++) {
+                snakeBodies.push(getNodeId(snake.body[i], gameState));
+            }
+            const head = snake.body[0];
+            if (snake.body.length >= gameState.you.body.length) {
+                [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([dx, dy]) => {
+                    snakeHeads.push(getNodeId({ x: head.x + dx, y: head.y + dy }, gameState));
+                });
+            }
+        }
+    }
+
+    for (const segment of gameState.you.body) {
+        const id = getNodeId(segment, gameState);
+        if (id !== tailNode || (gameState.you.health === 100 && beside(gameState.you.body[0], gameState.you.body[gameState.you.body.length - 1]))) {
+            snakeBodies.push(id);
+        }
+    }
+
+    for (const f of gameState.board.food) {
+        food.push(getNodeId(f, gameState));
+    }
+
+    for (const i in board) {
+        for (const j in board) {
+            const a = board[i].position;
+            const b = board[j].position;
+            if (beside(a, b) && !snakeBodies.includes(Number(j))) {
+                if (snakeHeads.includes(Number(j))) board[i].connections.push([Number(j), 100]);
+                else if (food.includes(Number(j))) board[i].connections.push([Number(j), 5]);
+                else board[i].connections.push([Number(j), 1]);
+            }
+        }
+    }
+    return board;
+}
+
+function aStar(graph, start, target) {
+    const open = [{ node: start, f: 0, path: [start] }];
+    const gScores = { [start]: 0 };
+
+    while (open.length > 0) {
+        open.sort((a, b) => a.f - b.f);
+        const current = open.shift();
+        if (current.node === target) return { path: current.path, cost: gScores[target] };
+
+        for (const [neighbor, cost] of graph[current.node].connections) {
+            const g = gScores[current.node] + cost;
+            if (!(neighbor in gScores) || g < gScores[neighbor]) {
+                gScores[neighbor] = g;
+                const f = g + heuristic(neighbor, target, graph);
+                open.push({ node: neighbor, f, path: [...current.path, neighbor] });
+            }
+        }
+    }
+    return { path: [], cost: Infinity };
+}
+
+function heuristic(a, b, graph) {
+    return Math.abs(graph[a].position.x - graph[b].position.x) + Math.abs(graph[a].position.y - graph[b].position.y);
+}
+
+function getNodeId(pos, gameState) {
+    if (pos.y >= 0 && pos.y < gameState.board.height && pos.x >= 0 && pos.x < gameState.board.width) {
+        return pos.y * gameState.board.width + pos.x;
+    }
+    return undefined;
+}
+
+function nearestFood(gameState, board, myHead, start) {
+    const foodNodes = gameState.board.food.map(f => getNodeId(f, gameState));
+    const safeFood = bfs(board, getNodeId(start, gameState), gameState, foodNodes);
+    let best = { dist: Infinity, node: null };
+    for (const node of safeFood) {
+        const p = aStar(board, getNodeId(myHead, gameState), node);
+        if (p.path.length < best.dist && p.cost <= 50) {
+            best = { dist: p.path.length, node };
+        }
+    }
+    return best.node || getNodeId(gameState.you.body[gameState.you.body.length - 1], gameState);
+}
+
+function checkEnclosure(board, headNode, gameState) {
+    const directions = [[0, 1], [0, -1], [-1, 0], [1, 0]];
+    return directions.every(([dx, dy]) => {
+        const neighbor = getNodeId({ x: board[headNode].position.x + dx, y: board[headNode].position.y + dy }, gameState);
+        return neighbor && bfs(board, neighbor) < gameState.you.body.length;
+    });
+}
+
+function findClosestOpening(gameState, board, headNode) {
+    const tailIdx = gameState.you.body.length - 1;
+    for (let turn = 0; turn <= tailIdx; turn++) {
+        const futureTail = gameState.you.body[tailIdx - turn];
+        const node = getNodeId(futureTail, gameState);
+        if (aStar(board, headNode, node).path.length > 0) return { opening: node, turns: turn };
+    }
+    return null;
+}
+
+function bfs(graph, start, gameState = undefined, targets = undefined) {
+    const visited = new Set();
+    const queue = [start];
+    let count = 0;
+    const foundTargets = [];
+    while (queue.length > 0) {
+        const node = queue.shift();
+        if (!visited.has(node)) {
+            visited.add(node);
+            count++;
+            if (targets && targets.includes(node)) foundTargets.push(node);
+            for (const [neighbor] of graph[node].connections) {
+                if (!visited.has(neighbor)) queue.push(neighbor);
+            }
+        }
+    }
+    return targets ? foundTargets : count;
+}
+
+function beside(a, b) {
+    return (Math.abs(a.x - b.x) + Math.abs(a.y - b.y)) === 1;
+}
+
+function calculateNextMove(target, board, head) {
+    const dx = board[target].position.x - board[head].position.x;
+    const dy = board[target].position.y - board[head].position.y;
+    if (dx === 1) return 'right';
+    if (dx === -1) return 'left';
+    if (dy === 1) return 'up';
+    if (dy === -1) return 'down';
+} 
