@@ -14,15 +14,18 @@ export default function move(game) {
     }
     board = connectNodes(gameState, board);
 
-    // Determine target based on hunger state
-    const isHungry = gameState.you.health < 30 || gameState.you.body.length % 2 !== 0 ||
-        gameState.board.snakes.some(s => s.id !== gameState.you.id && s.body.length >= gameState.you.body.length - 2);
+    const enemySnakes = gameState.board.snakes.filter(s => s.id !== gameState.you.id);
+    const largestEnemy = enemySnakes.reduce((biggest, s) => s.body.length > biggest.body.length ? s : biggest, { body: [] });
+
+    const aggressiveMode = gameState.you.body.length < largestEnemy.body.length + 5;
+    const isHungry = aggressiveMode || gameState.you.health < 30;
 
     let targetNode;
     if (isHungry && gameState.board.food.length > 0) {
         targetNode = nearestFood(gameState, board, myHead, myHead);
     } else {
-        targetNode = getNodeId(myTail, gameState);
+        const boxingNode = boxEnemyInCorner(gameState, board);
+        targetNode = boxingNode || getNodeId(myTail, gameState);
     }
 
     if (checkEnclosure(board, headNode, gameState)) {
@@ -30,30 +33,91 @@ export default function move(game) {
         if (escape) targetNode = escape.opening || targetNode;
     }
 
-    const path = aStar(board, headNode, targetNode);
-    let nextMove = calculateNextMove(path.path[1], board, headNode);
+    let path = aStar(board, headNode, targetNode);
+    if (!path || !path.path || path.path.length < 2 || detectLoopTrap(path.path, board, gameState)) {
+        const tailNode = getNodeId(myTail, gameState);
+        const tailPath = aStar(board, headNode, tailNode);
+        if (tailPath.path.length > 1 && !detectLoopTrap(tailPath.path, board, gameState)) {
+            path = tailPath;
+        }
+    }
 
-    // New: Ensure selected move doesn't crash into wall or body
+    let nextMove = path.path[1] ? calculateNextMove(path.path[1], board, headNode) : null;
     const allMoves = ['up', 'down', 'left', 'right'];
     const safeMoves = allMoves.filter(move => isMoveSafe(move, gameState));
+    const riskyMoves = allMoves.filter(move => !isHeadOnRisk(move, gameState));
+    const superSafeMoves = safeMoves.filter(move => riskyMoves.includes(move));
+    const validMoves = superSafeMoves.filter(move => isMoveSafe(move, gameState));
 
-    if (!safeMoves.includes(nextMove)) {
-        for (let move of safeMoves) {
-            const neighbor = getNextPosition(myHead, move);
-            const neighborNode = getNodeId(neighbor, gameState);
-            if (neighborNode !== undefined && bfs(board, neighborNode) > gameState.you.body.length / 2) {
-                nextMove = move;
+    const avoidMoves = new Set();
+    for (const enemy of enemySnakes) {
+        const enemyHead = enemy.body[0];
+        const enemyNexts = ['up', 'down', 'left', 'right'].map(d => getNextPosition(enemyHead, d));
+        for (const pos of enemyNexts) {
+            if (pos.x === myHead.x + 1 && pos.y === myHead.y) avoidMoves.add('right');
+            if (pos.x === myHead.x - 1 && pos.y === myHead.y) avoidMoves.add('left');
+            if (pos.x === myHead.x && pos.y === myHead.y + 1) avoidMoves.add('up');
+            if (pos.x === myHead.x && pos.y === myHead.y - 1) avoidMoves.add('down');
+        }
+    }
+
+    const filteredMoves = validMoves.filter(move => !avoidMoves.has(move));
+
+    const scoredMoves = filteredMoves.map(move => {
+        const neighbor = getNextPosition(myHead, move);
+        const neighborNode = getNodeId(neighbor, gameState);
+        const space = neighborNode !== undefined ? bfs(board, neighborNode) : 0;
+        return { move, space };
+    }).sort((a, b) => b.space - a.space);
+
+    if (!filteredMoves.includes(nextMove)) {
+        if (scoredMoves.length > 0) {
+            nextMove = scoredMoves[0].move;
+        }
+    }
+
+    if (!nextMove || !filteredMoves.includes(nextMove)) {
+        nextMove = filteredMoves[0] || validMoves[0] || safeMoves[0] || 'up';
+    }
+
+    for (const enemy of enemySnakes) {
+        const enemyHead = enemy.body[0];
+        if (gameState.you.body.length > enemy.body.length) {
+            if (beside(getNextPosition(myHead, nextMove), enemyHead)) {
+                nextMove = calculateNextMove(getNodeId(enemyHead, gameState), board, headNode);
                 break;
             }
         }
     }
 
-    if (!safeMoves.includes(nextMove)) {
-        nextMove = safeMoves[0] || 'up';
-    }
-
     console.log(`MOVE ${gameState.turn}: ${nextMove}`);
     return { move: nextMove };
+}
+
+function boxEnemyInCorner(gameState, board) {
+    const corners = [
+        { x: 0, y: 0 },
+        { x: 0, y: gameState.board.height - 1 },
+        { x: gameState.board.width - 1, y: 0 },
+        { x: gameState.board.width - 1, y: gameState.board.height - 1 }
+    ];
+    const enemies = gameState.board.snakes.filter(s => s.id !== gameState.you.id);
+    for (const corner of corners) {
+        for (const enemy of enemies) {
+            const eHead = enemy.body[0];
+            if (Math.abs(eHead.x - corner.x) <= 3 && Math.abs(eHead.y - corner.y) <= 3) {
+                return getNodeId(corner, gameState);
+            }
+        }
+    }
+    return null;
+}
+
+function detectLoopTrap(path, board, gameState) {
+    if (!path || path.length < 2) return false;
+    const lastNode = path[path.length - 1];
+    const reachable = bfs(board, lastNode);
+    return reachable < gameState.you.body.length * 1.1;
 }
 
 function isMoveSafe(move, gameState) {
@@ -75,6 +139,21 @@ function isMoveSafe(move, gameState) {
     return true;
 }
 
+function isHeadOnRisk(move, gameState) {
+    const myHead = gameState.you.body[0];
+    const newHead = getNextPosition(myHead, move);
+    for (const snake of gameState.board.snakes) {
+        if (snake.id === gameState.you.id) continue;
+        const enemyHead = snake.body[0];
+        if (snake.body.length >= gameState.you.body.length) {
+            if (beside(newHead, enemyHead)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 function getNextPosition(pos, move) {
     const delta = { up: [0, 1], down: [0, -1], left: [-1, 0], right: [1, 0] };
     return {
@@ -82,7 +161,6 @@ function getNextPosition(pos, move) {
         y: pos.y + delta[move][1]
     };
 }
-
 function connectNodes(gameState, board) {
     const snakeBodies = [];
     const snakeHeads = [];
@@ -166,7 +244,7 @@ function nearestFood(gameState, board, myHead, start) {
     let best = { dist: Infinity, node: null };
     for (const node of safeFood) {
         const p = aStar(board, getNodeId(myHead, gameState), node);
-        if (p.path.length < best.dist && p.cost <= 50) {
+        if (p.path.length < best.dist && p.cost <= 70) {
             best = { dist: p.path.length, node };
         }
     }
