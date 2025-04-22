@@ -16,9 +16,10 @@ export default function move(game) {
 
     const enemySnakes = gameState.board.snakes.filter(s => s.id !== gameState.you.id);
     const largestEnemy = enemySnakes.reduce((biggest, s) => s.body.length > biggest.body.length ? s : biggest, { body: [] });
-
+    const is1v1 = enemySnakes.length === 1;
+    const riskFactor = is1v1 ? 1.5 : 1.0; // still play aggressive even in 4p if healthy and stronger
     const aggressiveMode = gameState.you.body.length < largestEnemy.body.length + 5;
-    const isHungry = aggressiveMode || gameState.you.health < 30;
+    const isHungry = aggressiveMode || gameState.you.health < 60;
 
     let targetNode;
     if (isHungry && gameState.board.food.length > 0) {
@@ -63,12 +64,13 @@ export default function move(game) {
 
     const filteredMoves = validMoves.filter(move => !avoidMoves.has(move));
 
+    // Zone Control Scoring with risk factor
     const scoredMoves = filteredMoves.map(move => {
         const neighbor = getNextPosition(myHead, move);
         const neighborNode = getNodeId(neighbor, gameState);
-        const space = neighborNode !== undefined ? bfs(board, neighborNode) : 0;
-        return { move, space };
-    }).sort((a, b) => b.space - a.space);
+        const myZoneSize = neighborNode !== undefined ? bfsZoneOwnership(board, neighborNode, gameState) : 0;
+        return { move, score: myZoneSize * riskFactor };
+    }).sort((a, b) => b.score - a.score);
 
     if (!filteredMoves.includes(nextMove)) {
         if (scoredMoves.length > 0) {
@@ -80,19 +82,63 @@ export default function move(game) {
         nextMove = filteredMoves[0] || validMoves[0] || safeMoves[0] || 'up';
     }
 
+    // Offensive Tactics
+    for (const enemy of enemySnakes) {
+        const tail = enemy.body[enemy.body.length - 1];
+        const tailNode = getNodeId(tail, gameState);
+        const tailPath = aStar(board, headNode, tailNode);
+        if (tailPath.path.length > 0 && bfs(board, tailNode) < 20) {
+            nextMove = calculateNextMove(tailPath.path[1], board, headNode);
+        }
+    }
+
     for (const enemy of enemySnakes) {
         const enemyHead = enemy.body[0];
-        if (gameState.you.body.length > enemy.body.length) {
-            if (beside(getNextPosition(myHead, nextMove), enemyHead)) {
-                nextMove = calculateNextMove(getNodeId(enemyHead, gameState), board, headNode);
-                break;
+        const distance = Math.abs(enemyHead.x - myHead.x) + Math.abs(enemyHead.y - myHead.y);
+        if (gameState.you.body.length > enemy.body.length && (is1v1 || gameState.you.health > 40)) {
+            if (distance <= 2) {
+                const attackMove = allMoves.find(move => {
+                    const pos = getNextPosition(myHead, move);
+                    return pos.x === enemyHead.x && pos.y === enemyHead.y && isMoveSafe(move, gameState);
+                });
+                if (attackMove) {
+                    nextMove = attackMove;
+                    break;
+                }
             }
         }
+    }
+
+    if (!isMoveSafe(nextMove, gameState)) {
+        nextMove = safeMoves[0] || 'up';
     }
 
     console.log(`MOVE ${gameState.turn}: ${nextMove}`);
     return { move: nextMove };
 }
+
+function bfsZoneOwnership(board, startNode, gameState) {
+    const visited = new Set();
+    const queue = [startNode];
+    const enemyHeads = gameState.board.snakes.filter(s => s.id !== gameState.you.id).map(s => s.body[0]);
+    let myControl = 0;
+
+    while (queue.length > 0) {
+        const node = queue.shift();
+        if (!visited.has(node)) {
+            visited.add(node);
+            const pos = board[node].position;
+            const enemyNearby = enemyHeads.some(h => Math.abs(h.x - pos.x) + Math.abs(h.y - pos.y) <= 2);
+            if (!enemyNearby) myControl++;
+
+            for (const [neighbor] of board[node].connections) {
+                if (!visited.has(neighbor)) queue.push(neighbor);
+            }
+        }
+    }
+    return myControl;
+}
+
 
 function boxEnemyInCorner(gameState, board) {
     const corners = [
