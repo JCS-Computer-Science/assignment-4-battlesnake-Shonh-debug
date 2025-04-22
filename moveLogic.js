@@ -1,3 +1,4 @@
+// Added space evaluation along paths (predictive zone safety + forked path preference)
 export default function move(game) {
     const gameState = game;
     const myHead = gameState.you.body[0];
@@ -17,7 +18,7 @@ export default function move(game) {
     const enemySnakes = gameState.board.snakes.filter(s => s.id !== gameState.you.id);
     const largestEnemy = enemySnakes.reduce((biggest, s) => s.body.length > biggest.body.length ? s : biggest, { body: [] });
     const is1v1 = enemySnakes.length === 1;
-    const riskFactor = is1v1 ? 1.5 : 1.0; // still play aggressive even in 4p if healthy and stronger
+    const riskFactor = is1v1 ? 1.5 : 1.0;
     const aggressiveMode = gameState.you.body.length < largestEnemy.body.length + 5;
     const isHungry = aggressiveMode || gameState.you.health < 60;
 
@@ -27,6 +28,14 @@ export default function move(game) {
     } else {
         const boxingNode = boxEnemyInCorner(gameState, board);
         targetNode = boxingNode || getNodeId(myTail, gameState);
+
+        const tailNode = getNodeId(myTail, gameState);
+        const tailPath = aStar(board, headNode, tailNode);
+        const reachableTail = bfs(board, tailNode);
+
+        if (tailPath.path.length > 1 && reachableTail > gameState.you.body.length * 1.2) {
+            targetNode = tailNode;
+        }
     }
 
     if (checkEnclosure(board, headNode, gameState)) {
@@ -43,7 +52,23 @@ export default function move(game) {
         }
     }
 
-    let nextMove = path.path[1] ? calculateNextMove(path.path[1], board, headNode) : null;
+    function hasDeadEnd(path) {
+        if (!path || path.length === 0) return true;
+        const finalNode = path[path.length - 1];
+        const reachable = bfs(board, finalNode);
+        return reachable < gameState.you.body.length * 1.2;
+    }
+
+    function pathSpaceEvaluation(path) {
+        if (!path || path.length === 0) return 0;
+        const lastNode = path[path.length - 1];
+        return bfs(board, lastNode);
+    }
+
+    function forkFlexibility(node) {
+        return board[node].connections.length;
+    }
+
     const allMoves = ['up', 'down', 'left', 'right'];
     const safeMoves = allMoves.filter(move => isMoveSafe(move, gameState));
     const riskyMoves = allMoves.filter(move => !isHeadOnRisk(move, gameState));
@@ -64,13 +89,19 @@ export default function move(game) {
 
     const filteredMoves = validMoves.filter(move => !avoidMoves.has(move));
 
-    // Zone Control Scoring with risk factor
     const scoredMoves = filteredMoves.map(move => {
         const neighbor = getNextPosition(myHead, move);
         const neighborNode = getNodeId(neighbor, gameState);
-        const myZoneSize = neighborNode !== undefined ? bfsZoneOwnership(board, neighborNode, gameState) : 0;
-        return { move, score: myZoneSize * riskFactor };
+        const zone = neighborNode !== undefined ? bfsZoneOwnership(board, neighborNode, gameState) : 0;
+        const space = neighborNode !== undefined ? bfs(board, neighborNode) : 0;
+        const forks = neighborNode !== undefined ? forkFlexibility(neighborNode) : 0;
+        return { move, score: zone * riskFactor + space * 0.5 + forks * 2 };
     }).sort((a, b) => b.score - a.score);
+
+    let nextMove = path.path[1] ? calculateNextMove(path.path[1], board, headNode) : null;
+    if (hasDeadEnd(path.path) && scoredMoves.length > 0) {
+        nextMove = scoredMoves[0].move;
+    }
 
     if (!filteredMoves.includes(nextMove)) {
         if (scoredMoves.length > 0) {
@@ -82,7 +113,6 @@ export default function move(game) {
         nextMove = filteredMoves[0] || validMoves[0] || safeMoves[0] || 'up';
     }
 
-    // Offensive Tactics
     for (const enemy of enemySnakes) {
         const tail = enemy.body[enemy.body.length - 1];
         const tailNode = getNodeId(tail, gameState);
@@ -116,6 +146,7 @@ export default function move(game) {
     console.log(`MOVE ${gameState.turn}: ${nextMove}`);
     return { move: nextMove };
 }
+
 
 function bfsZoneOwnership(board, startNode, gameState) {
     const visited = new Set();
