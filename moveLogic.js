@@ -1,5 +1,3 @@
-
-// Added space evaluation along paths (predictive zone safety + forked path preference)
 export default function move(game) {
     const gameState = game;
     const myHead = gameState.you.body[0];
@@ -96,23 +94,23 @@ export default function move(game) {
     
         if (snakeCount === 2) return 1.0;         
         if (turn < 100) return 3.5;                
-        if (snakeCount === 1) return 0.5;                
+        if (turn > 300) return 1;                
         return 2.0;                                
     }
     
     const forkWeight = getForkBias(gameState);
-    
+    const predictedSpace = pathSpaceEvaluation(path.path);
     const scoredMoves = filteredMoves.map(move => {
         const neighbor = getNextPosition(myHead, move);
         const neighborNode = getNodeId(neighbor, gameState);
         const zone = neighborNode !== undefined ? bfsZoneOwnership(board, neighborNode, gameState) : 0;
         const space = neighborNode !== undefined ? bfs(board, neighborNode) : 0;
         const forks = neighborNode !== undefined ? forkFlexibility(neighborNode) : 0;
-        return { move, score: zone * riskFactor + space * 0.5 + forks * forkWeight };
+        return { move, score: zone * riskFactor + space * 0.5 + forks * forkWeight + predictedSpace * 0.1 };
     }).sort((a, b) => b.score - a.score);
     
     let nextMove = path.path[1] ? calculateNextMove(path.path[1], board, headNode) : null;
-    if (hasDeadEnd(path.path) && scoredMoves.length > 0) {
+    if (pathSpaceEvaluation(path.path) < gameState.you.body.length * 1.2 && scoredMoves.length > 0) {
         nextMove = scoredMoves[0].move;
     }
 
