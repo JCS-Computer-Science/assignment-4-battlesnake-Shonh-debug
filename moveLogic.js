@@ -98,14 +98,14 @@ export default function move(game) {
         const is1v1 = snakes.length === 2;
         const isSolo = snakes.length === 1;
         const isEarly = turn < 100;
-        const isLate = turn > 300;
+        const isLate = turn > 250;
         const lowHealth = mySnake.health < 30;
         const isHungry = mySnake.health < 50 || mySnake.body.length < 5;
-        const isDominant = enemySnakes.every(s => mySnake.body.length > s.body.length + 3);
+        const isDominant = enemySnakes.every(s => mySnake.body.length > s.body.length + 2);
     
         if (isSolo) return 0.0;                            
         if (is1v1 && isDominant && mySnake.health > 50) return 0.5; 
-        if (isEarly) return boardArea > 150 ? 4.0 : 3.0;     
+        if (isEarly) return boardArea > 150 ? 3.0 : 2.0;     
         if (lowHealth) return 2.5;                           
         if (isLate) return 1.0;                       
         if (isHungry) return 3.0;                    
@@ -114,6 +114,7 @@ export default function move(game) {
     }
     
     const forkWeight = getForkBias(gameState);
+    console.log(`[DEBUG] Turn ${gameState.turn} | Snakes: ${gameState.board.snakes.length} | Fork Bias: ${forkWeight}`);
     const predictedSpace = pathSpaceEvaluation(path.path);
     const scoredMoves = filteredMoves.map(move => {
         const neighbor = getNextPosition(myHead, move);
