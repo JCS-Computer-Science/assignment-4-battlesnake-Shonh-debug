@@ -27,16 +27,16 @@ export default function move(game) {
     const boardArea = gameState.board.height * gameState.board.width;
 
     if (turn < 80 && boardArea > 100) { // Early game, open board
-        spaceWeight = 1.15;
-        predictedWeight = 0.2;
-    } else if (turn > 200 && gameState.you.health < 70) { // Late game, survival mode
         spaceWeight = 1.3;
         predictedWeight = 0.4;
+    } else if (is1v1 && turn > 200 && gameState.you.health < 75) { // Late game, survival mode
+        spaceWeight = 1.1;
+        predictedWeight = 0.2;
     } else if (isHungry && boardArea < 100) { // Food race, small board
         spaceWeight = 0.8;
         predictedWeight = 0.1;
     } else if (checkEnclosure(board, headNode, gameState)) { // Anti-trap strategy
-        spaceWeight = 1.5;
+        spaceWeight = 1.6;
         predictedWeight = 0.5;
     }
 
@@ -114,22 +114,22 @@ export default function move(game) {
       const boardArea = state.board.height * state.board.width;
       const enemySnakes = snakes.filter(s => s.id !== mySnake.id);
   
-      const is1v1 = snakes.length === 2;
+      const isNow1v1 = snakes.length === 2;
       const isSolo = snakes.length === 1;
       const isEarly = turn < 80;
       const isLate = turn > 225;
       const lowHealth = mySnake.health < 30;
-      const isHungry = mySnake.health < 60 || mySnake.body.length < 6;
+      const isHungryNow = mySnake.health < 60 || mySnake.body.length < 6;
       const isDominant = enemySnakes.every(s => mySnake.body.length > s.body.length + 2);
   
       if (isSolo) return 0.0;
-      if (is1v1 && isDominant && mySnake.health > 50) return 0.5;
+      if (isNow1v1 && isDominant && mySnake.health > 50) return 0.5;
       if (isEarly) return boardArea > 150 ? 3.5 : 3.0;
       if (lowHealth) return 2.5;
       if (isLate) return 1.0;
-      if (isHungry) return 3.0;
+      if (isHungryNow) return 3.0;
   
-      return 2.0;
+      return 1.8;
     }
   
     const forkWeight = getForkBias(gameState);
