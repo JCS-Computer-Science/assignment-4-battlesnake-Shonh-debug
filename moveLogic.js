@@ -21,6 +21,25 @@ export default function move(game) {
     const aggressiveMode = gameState.you.body.length < largestEnemy.body.length + 5;
     const isHungry = aggressiveMode || gameState.you.health < 60;
   
+    let spaceWeight = 1.2;
+    let predictedWeight = 0.25;
+    const turn = gameState.turn;
+    const boardArea = gameState.board.height * gameState.board.width;
+
+    if (turn < 80 && boardArea > 100) { // Early game, open board
+        spaceWeight = 1.15;
+        predictedWeight = 0.2;
+    } else if (turn > 200 && gameState.you.health < 70) { // Late game, survival mode
+        spaceWeight = 1.3;
+        predictedWeight = 0.4;
+    } else if (isHungry && boardArea < 100) { // Food race, small board
+        spaceWeight = 0.8;
+        predictedWeight = 0.1;
+    } else if (checkEnclosure(board, headNode, gameState)) { // Anti-trap strategy
+        spaceWeight = 1.5;
+        predictedWeight = 0.5;
+    }
+
     let targetNode;
     if (isHungry && gameState.board.food.length > 0) {
       targetNode = nearestFood(gameState, board, myHead, myHead);
@@ -98,9 +117,9 @@ export default function move(game) {
       const is1v1 = snakes.length === 2;
       const isSolo = snakes.length === 1;
       const isEarly = turn < 80;
-      const isLate = turn > 250;
+      const isLate = turn > 225;
       const lowHealth = mySnake.health < 30;
-      const isHungry = mySnake.health < 50 || mySnake.body.length < 6;
+      const isHungry = mySnake.health < 60 || mySnake.body.length < 6;
       const isDominant = enemySnakes.every(s => mySnake.body.length > s.body.length + 2);
   
       if (isSolo) return 0.0;
@@ -114,7 +133,7 @@ export default function move(game) {
     }
   
     const forkWeight = getForkBias(gameState);
-    console.log(`[DEBUG] Turn ${gameState.turn} | Snakes: ${gameState.board.snakes.length} | Fork Bias: ${forkWeight}`);
+    console.log(`[DEBUG] Turn ${gameState.turn} | Snakes: ${gameState.board.snakes.length} | Fork Bias: ${forkWeight} | Space Weight: ${spaceWeight} | Predicted Weight: ${predictedWeight}`);
     const predictedSpace = pathSpaceEvaluation(path.path);
     const scoredMoves = filteredMoves.map(move => {
       const neighbor = getNextPosition(myHead, move);
@@ -125,7 +144,7 @@ export default function move(game) {
       const midPathTrap = detectLoopTrap([headNode, neighborNode], board, gameState);
         return {
         move,
-        score: midPathTrap ? -Infinity : zone * riskFactor + space * 1.1 + forks * forkWeight * 0.85 + predictedSpace * 0.2
+        score: midPathTrap ? -Infinity : zone * riskFactor + space * spaceWeight + forks * forkWeight * 0.9 + predictedSpace * predictedWeight
         };
     }).sort((a, b) => b.score - a.score);
   
