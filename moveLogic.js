@@ -125,7 +125,7 @@ export default function move(game) {
       const midPathTrap = detectLoopTrap([headNode, neighborNode], board, gameState);
         return {
         move,
-        score: midPathTrap ? -Infinity : zone * riskFactor + space * 1.3 + forks * forkWeight + predictedSpace * 0.1
+        score: midPathTrap ? -Infinity : zone * riskFactor + space * 1.1 + forks * forkWeight * 0.85 + predictedSpace * 0.2
         };
     }).sort((a, b) => b.score - a.score);
   
