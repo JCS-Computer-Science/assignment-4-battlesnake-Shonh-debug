@@ -135,16 +135,19 @@ export default function move(game) {
     const forkWeight = getForkBias(gameState);
     console.log(`[DEBUG] Turn ${gameState.turn} | Snakes: ${gameState.board.snakes.length} | Fork Bias: ${forkWeight} | Space Weight: ${spaceWeight} | Predicted Weight: ${predictedWeight}`);
     const predictedSpace = pathSpaceEvaluation(path.path);
+    const dangerZones = predictEnemyZones(gameState);
     const scoredMoves = filteredMoves.map(move => {
-      const neighbor = getNextPosition(myHead, move);
-      const neighborNode = getNodeId(neighbor, gameState);
-      const zone = neighborNode !== undefined ? bfsZoneOwnership(board, neighborNode, gameState) : 0;
-      const space = neighborNode !== undefined ? bfs(board, neighborNode) : 0;
-      const forks = neighborNode !== undefined ? forkFlexibility(neighborNode) : 0;
-      const midPathTrap = detectLoopTrap([headNode, neighborNode], board, gameState);
+        const neighbor = getNextPosition(myHead, move);
+        const neighborNode = getNodeId(neighbor, gameState);
+        const zone = neighborNode !== undefined ? bfsZoneOwnership(board, neighborNode, gameState) : 0;
+        const space = neighborNode !== undefined ? bfs(board, neighborNode) : 0;
+        const forks = neighborNode !== undefined ? forkFlexibility(neighborNode) : 0;
+        const midPathTrap = detectLoopTrap([headNode, neighborNode], board, gameState);
+        const predictedSpacePenalty = dangerZones.has(`${neighbor.x},${neighbor.y}`) ? -10 : 0; // Penalty if predicted enemy could be there
+    
         return {
-        move,
-        score: midPathTrap ? -Infinity : zone * riskFactor + space * spaceWeight + forks * forkWeight * 0.9 + predictedSpace * predictedWeight
+            move,
+            score: midPathTrap ? -Infinity : zone * riskFactor + space * spaceWeight + forks * forkWeight * 0.9 + predictedSpace * predictedWeight + predictedSpacePenalty
         };
     }).sort((a, b) => b.score - a.score);
   
@@ -398,6 +401,35 @@ function nearestFood(gameState, board, myHead, start) {
         }
     }
     return best.node || getNodeId(gameState.you.body[gameState.you.body.length - 1], gameState);
+}
+
+function predictEnemyZones(gameState, depth = 2) {
+    const dangerZones = new Set();
+    const directions = ['up', 'down', 'left', 'right'];
+    const boardWidth = gameState.board.width;
+    const boardHeight = gameState.board.height;
+
+    for (const enemy of gameState.board.snakes.filter(s => s.id !== gameState.you.id)) {
+        let headsToCheck = [enemy.body[0]];
+
+        for (let d = 0; d < depth; d++) {
+            const newHeads = [];
+            for (const head of headsToCheck) {
+                for (const move of directions) {
+                    const next = getNextPosition(head, move);
+                    if (
+                        next.x >= 0 && next.x < boardWidth &&
+                        next.y >= 0 && next.y < boardHeight
+                    ) {
+                        dangerZones.add(`${next.x},${next.y}`);
+                        newHeads.push(next);
+                    }
+                }
+            }
+            headsToCheck = newHeads;
+        }
+    }
+    return dangerZones;
 }
 
 function checkEnclosure(board, headNode, gameState) {
