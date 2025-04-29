@@ -136,13 +136,6 @@ export default function move(game) {
       }
     }
 
-    function hasDeadEnd(path) {
-      if (!path || path.length === 0) return true;
-      const finalNode = path[path.length - 1];
-      const reachable = bfs(board, finalNode);
-      return reachable < gameState.you.body.length * 1.2;
-    }
-
     function pathSpaceEvaluation(path) {
       if (!path || path.length === 0) return 0;
       const lastNode = path[path.length - 1];
