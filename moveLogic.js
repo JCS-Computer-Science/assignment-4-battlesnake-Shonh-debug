@@ -19,7 +19,8 @@ export default function move(game) {
     const is1v1 = enemySnakes.length === 1;
     const riskFactor = is1v1 ? 1.5 : 1.0;
     const aggressiveMode = gameState.you.body.length < largestEnemy.body.length + 5;
-    const isHungry = aggressiveMode || gameState.you.health < 60;
+    const isInHazard = isHazard(myHead, gameState);
+    const isHungry = aggressiveMode || gameState.you.health < 60 || isInHazard;
 
     let spaceWeight = 1.2;
     let predictedWeight = 0.25;
