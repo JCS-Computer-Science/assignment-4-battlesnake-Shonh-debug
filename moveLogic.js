@@ -206,9 +206,10 @@ export default function move(game) {
         const space = neighborNode !== undefined ? bfs(board, neighborNode) : 0;
         const forks = neighborNode !== undefined ? forkFlexibility(neighborNode) : 0;
         const midPathTrap = detectLoopTrap([headNode, neighborNode], board, gameState);
+        const hazardPenalty = isHazard(neighbor, gameState) ? -15 : 0
         return {
             move,
-            score: midPathTrap ? -Infinity : zone * riskFactor + space * spaceWeight + forks * forkWeight * 0.9 + predictedSpace * predictedWeight
+            score: midPathTrap ? -Infinity : zone * riskFactor + space * spaceWeight + forks * forkWeight * 0.9 + predictedSpace * predictedWeight + hazardPenalty
         };
     }).sort((a, b) => b.score - a.score);
     let nextMove = path.path[1] ? calculateNextMove(path.path[1], board, headNode) : null;
@@ -323,7 +324,11 @@ function detectLoopTrap(path, board, gameState) {
      const finalReachable = bfs(board, lastNode);
     return finalReachable < snakeLength * 1.1;
 }
- 
+
+function isHazard(pos, gameState) {
+    return gameState.board.hazards.some(h => h.x === pos.x && h.y === pos.y);
+}
+
 function isMoveSafe(move, gameState) {
     const myHead = gameState.you.body[0];
     const newHead = getNextPosition(myHead, move);
@@ -340,8 +345,14 @@ function isMoveSafe(move, gameState) {
             }
         }
     }
-    return true;
+    // avoid hazards based on health
+    if (isHazard(newHead, gameState) && gameState.you.health < 75) {
+        return false;
+    }
+        return true;
 }
+
+
 function isHeadOnRisk(move, gameState) {
     const myHead = gameState.you.body[0];
     const newHead = getNextPosition(myHead, move);
@@ -400,8 +411,10 @@ function connectNodes(gameState, board) {
             const a = board[i].position;
             const b = board[j].position;
             if (beside(a, b) && !snakeBodies.includes(Number(j))) {
+                const pos = board[j].position;
                 if (snakeHeads.includes(Number(j))) board[i].connections.push([Number(j), 100]);
                 else if (food.includes(Number(j))) board[i].connections.push([Number(j), 5]);
+                else if (isHazard(pos, gameState)) board[i].connections.push([Number(j), 2]);
                 else board[i].connections.push([Number(j), 1]);
             }
         }
