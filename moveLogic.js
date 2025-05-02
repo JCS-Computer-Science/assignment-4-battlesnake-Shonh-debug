@@ -19,8 +19,8 @@ export default function move(game) {
     const is1v1 = enemySnakes.length === 1;
     const riskFactor = is1v1 ? 1.5 : 1.0;
     const aggressiveMode = gameState.you.body.length < largestEnemy.body.length + 5;
-    const isInHazard = isHazard(myHead, gameState);
-    const isHungry = aggressiveMode || gameState.you.health < 60 || isInHazard;
+    const inHazard = isHazard(myHead, gameState);
+    const isHungry = aggressiveMode || gameState.you.health < 60 || inHazard;
 
     let spaceWeight = 1.2;
     let predictedWeight = 0.25;
@@ -152,6 +152,7 @@ export default function move(game) {
     const riskyMoves = allMoves.filter(move => !isHeadOnRisk(move, gameState));
     const superSafeMoves = safeMoves.filter(move => riskyMoves.includes(move));
     const validMoves = superSafeMoves.filter(move => isMoveSafe(move, gameState));
+    const escapeHazardMoves = superSafeMoves.filter(move => isHazard(getNextPosition(myHead, move), gameState));
     
     const avoidMoves = new Set();
     for (const enemy of enemySnakes) {
@@ -207,14 +208,18 @@ export default function move(game) {
         const space = neighborNode !== undefined ? bfs(board, neighborNode) : 0;
         const forks = neighborNode !== undefined ? forkFlexibility(neighborNode) : 0;
         const midPathTrap = detectLoopTrap([headNode, neighborNode], board, gameState);
-        const hazardPenalty = isHazard(neighbor, gameState) ? -15 : 0
+        const hazardPenalty = isHazard(neighbor, gameState) ? -25 + Math.floor(gameState.you.health / 5) : 0;
         return {
             move,
             score: midPathTrap ? -Infinity : zone * riskFactor + space * spaceWeight + forks * forkWeight * 0.9 + predictedSpace * predictedWeight + hazardPenalty
         };
     }).sort((a, b) => b.score - a.score);
+    
     let nextMove = path.path[1] ? calculateNextMove(path.path[1], board, headNode) : null;
-    if (pathSpaceEvaluation(path.path) < gameState.you.body.length * 1.2 && scoredMoves.length > 0) {
+    if (inHazard && escapeHazardMoves.length > 0) {
+        nextMove = escapeHazardMoves[0];
+        console.log(`[Hazard Escape] Escaping via: ${nextMove}`)
+    } else if (pathSpaceEvaluation(path.path) < gameState.you.body.length * 1.2 && scoredMoves.length > 0) {
         nextMove = scoredMoves[0].move;
     }
     if (!filteredMoves.includes(nextMove)) {
@@ -224,7 +229,7 @@ export default function move(game) {
     }
 
     if (!nextMove || !isMoveSafe(nextMove, gameState)) {
-        const emergencyMoves = allMoves.filter(m => isMoveSafe(m, gameState));
+        const emergencyMoves = allMoves.filter(m => isMoveSafe(m, gameState) && !isHazard(getNextPosition(myHead, m), gameState));
         if (emergencyMoves.length > 0) {
             nextMove = emergencyMoves.reduce((best, move) => {
                 const pos = getNextPosition(myHead, move);
