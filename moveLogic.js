@@ -152,7 +152,10 @@ export default function move(game) {
     const riskyMoves = allMoves.filter(move => !isHeadOnRisk(move, gameState));
     const superSafeMoves = safeMoves.filter(move => riskyMoves.includes(move));
     const validMoves = superSafeMoves.filter(move => isMoveSafe(move, gameState));
-    const escapeHazardMoves = superSafeMoves.filter(move => isHazard(getNextPosition(myHead, move), gameState));
+    const escapeHazardMoves = superSafeMoves.filter(move => {
+        const nextPos = getNextPosition(myHead, move);
+        return !isHazard(nextPos, gameState) && isMoveSafe(move, gameState);
+    })
     
     const avoidMoves = new Set();
     for (const enemy of enemySnakes) {
